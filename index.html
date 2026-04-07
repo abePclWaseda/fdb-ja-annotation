@@ -150,9 +150,8 @@
 // Without params → all 50 items (for single annotator)
 // ============================================================
 const params = new URLSearchParams(window.location.search);
-const totalWorkers = parseInt(params.get("workers")) || 1;
-const workerId = parseInt(params.get("id")) || 1;
-const workerIdStr = `worker_${workerId}`;
+const workerId = params.get("id") || "";
+const workerIdStr = workerId || "anonymous";
 
 const TASKS = {
   pause: {
@@ -202,7 +201,7 @@ let assignedData = {};   // worker's subset
 let annotations = { pause: {}, smooth_tt: {}, bc: {} };
 
 function getStorageKey() {
-  return `fdb_ja_ann_w${totalWorkers}_id${workerId}`;
+  return `fdb_ja_ann_id_${workerIdStr}`;
 }
 
 function loadSaved() {
@@ -214,27 +213,18 @@ function saveAnnotations() {
   localStorage.setItem(getStorageKey(), JSON.stringify(annotations));
 }
 
-function assignItems(allItems, nWorkers, wId) {
-  // Split items evenly across workers (1-indexed wId)
-  const perWorker = Math.ceil(allItems.length / nWorkers);
-  const start = (wId - 1) * perWorker;
-  const end = Math.min(start + perWorker, allItems.length);
-  return allItems.slice(start, end);
-}
-
 async function loadData() {
   for (const task of ["pause", "smooth_tt", "bc"]) {
     const resp = await fetch(`data_${task}.json`);
     data[task] = await resp.json();
-    assignedData[task] = assignItems(data[task], totalWorkers, workerId);
+    assignedData[task] = data[task]; // all items for all workers
   }
 
-  // Show assignment info
   const perTask = assignedData["pause"].length;
   const total = perTask * 3;
+  const idLabel = workerId ? `ID: <strong>${workerId}</strong> &mdash; ` : "";
   document.getElementById("assignmentInfo").innerHTML =
-    `<strong>ワーカー ${workerId} / ${totalWorkers}</strong> &mdash; ` +
-    `各タスク <strong>${perTask}件</strong>、合計 <strong>${total}件</strong> を担当`;
+    `${idLabel}各タスク <strong>${perTask}件</strong> &times; 3タスク = 合計 <strong>${total}件</strong>（約5-10分）`;
 }
 
 function render() {
@@ -312,13 +302,13 @@ function navigate(delta) {
 }
 
 function exportResults() {
-  let csv = "annotator_id,worker_id,total_workers,task,clip_id,clip_file,auto_label,annotation\n";
+  let csv = "annotator_id,task,clip_id,clip_file,auto_label,annotation\n";
 
   for (const task of ["pause", "smooth_tt", "bc"]) {
     const items = assignedData[task];
     for (let i = 0; i < items.length; i++) {
       const ann = annotations[task][i] || "";
-      csv += `${workerIdStr},${workerId},${totalWorkers},${task},${items[i].clip_id},${items[i].clip_file},${items[i].auto_label},${ann}\n`;
+      csv += `${workerIdStr},${task},${items[i].clip_id},${items[i].clip_file},${items[i].auto_label},${ann}\n`;
     }
   }
 
@@ -326,7 +316,7 @@ function exportResults() {
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
   a.href = url;
-  a.download = `fdb_ja_annotation_worker${workerId}_of_${totalWorkers}.csv`;
+  a.download = `fdb_ja_annotation_${workerIdStr}.csv`;
   a.click();
 }
 
