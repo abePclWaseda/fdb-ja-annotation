@@ -1,0 +1,315 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>FDB-JA v4 Annotation</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: 'Segoe UI', sans-serif; background: #f5f5f5; color: #333; }
+  .container { max-width: 800px; margin: 0 auto; padding: 20px; }
+  h1 { text-align: center; margin-bottom: 10px; font-size: 1.5em; }
+  .subtitle { text-align: center; color: #666; margin-bottom: 20px; }
+
+  /* Task selector */
+  .task-tabs { display: flex; gap: 8px; margin-bottom: 20px; justify-content: center; }
+  .task-tab { padding: 10px 20px; border: 2px solid #ddd; border-radius: 8px;
+    cursor: pointer; font-weight: bold; transition: all 0.2s; }
+  .task-tab:hover { border-color: #999; }
+  .task-tab.active { border-color: #1976d2; background: #e3f2fd; color: #1976d2; }
+
+  /* Progress */
+  .progress { text-align: center; margin-bottom: 15px; color: #666; }
+  .progress-bar { height: 6px; background: #e0e0e0; border-radius: 3px; margin: 5px 0; }
+  .progress-fill { height: 100%; background: #4caf50; border-radius: 3px; transition: width 0.3s; }
+
+  /* Card */
+  .card { background: white; border-radius: 12px; padding: 24px; margin-bottom: 16px;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.1); }
+  .card h3 { margin-bottom: 12px; color: #1976d2; }
+
+  /* Guideline */
+  .guideline { background: #fff8e1; border-left: 4px solid #ffc107; padding: 12px 16px;
+    margin-bottom: 16px; border-radius: 0 8px 8px 0; font-size: 0.9em; }
+  .guideline summary { cursor: pointer; font-weight: bold; }
+
+  /* Audio */
+  audio { width: 100%; margin: 10px 0; }
+  .channel-info { font-size: 0.85em; color: #888; margin-bottom: 5px; }
+
+  /* Info table */
+  .info-table { width: 100%; border-collapse: collapse; margin: 10px 0; font-size: 0.9em; }
+  .info-table td { padding: 4px 8px; border-bottom: 1px solid #eee; }
+  .info-table td:first-child { font-weight: bold; color: #666; width: 140px; }
+  .info-table .highlight { background: #e8f5e9; }
+
+  /* Buttons */
+  .btn-group { display: flex; gap: 10px; margin: 16px 0; justify-content: center; }
+  .btn { padding: 12px 32px; border: 2px solid #ddd; border-radius: 8px;
+    cursor: pointer; font-size: 1em; font-weight: bold; transition: all 0.2s; background: white; }
+  .btn:hover { transform: translateY(-1px); box-shadow: 0 2px 8px rgba(0,0,0,0.15); }
+  .btn.yes { border-color: #4caf50; color: #4caf50; }
+  .btn.yes:hover, .btn.yes.selected { background: #4caf50; color: white; }
+  .btn.no { border-color: #f44336; color: #f44336; }
+  .btn.no:hover, .btn.no.selected { background: #f44336; color: white; }
+  .btn.maybe { border-color: #ff9800; color: #ff9800; }
+  .btn.maybe:hover, .btn.maybe.selected { background: #ff9800; color: white; }
+
+  /* Navigation */
+  .nav { display: flex; gap: 10px; justify-content: center; margin: 16px 0; }
+  .nav-btn { padding: 8px 20px; border: 1px solid #ddd; border-radius: 6px;
+    cursor: pointer; background: white; }
+  .nav-btn:hover { background: #f5f5f5; }
+  .nav-btn:disabled { opacity: 0.3; cursor: default; }
+
+  /* Export */
+  .export-section { text-align: center; margin: 20px 0; }
+  .export-btn { padding: 10px 24px; background: #1976d2; color: white; border: none;
+    border-radius: 8px; cursor: pointer; font-size: 1em; }
+  .export-btn:hover { background: #1565c0; }
+
+  /* Annotator ID */
+  .annotator-input { text-align: center; margin-bottom: 20px; }
+  .annotator-input input { padding: 8px 16px; border: 2px solid #ddd; border-radius: 6px;
+    font-size: 1em; width: 250px; text-align: center; }
+</style>
+</head>
+<body>
+<div class="container">
+  <h1>FDB-JA v4 Annotation Tool</h1>
+  <p class="subtitle">Human-B-as-Annotator 妥当性検証</p>
+
+  <div class="annotator-input">
+    <label>アノテーターID: </label>
+    <input type="text" id="annotatorId" placeholder="名前やIDを入力">
+  </div>
+
+  <div class="task-tabs">
+    <div class="task-tab active" data-task="pause">Pause (50)</div>
+    <div class="task-tab" data-task="smooth_tt">Smooth TT (50)</div>
+    <div class="task-tab" data-task="bc">BC (50)</div>
+  </div>
+
+  <div class="progress">
+    <span id="progressText">0 / 50 完了</span>
+    <div class="progress-bar"><div class="progress-fill" id="progressFill" style="width:0%"></div></div>
+  </div>
+
+  <details class="guideline" id="guidelineSection">
+    <summary>ガイドライン（クリックで開閉）</summary>
+    <div id="guidelineContent"></div>
+  </details>
+
+  <div class="card" id="itemCard">
+    <h3 id="itemTitle">Loading...</h3>
+    <p class="channel-info">左チャンネル = 話者A（入力）、右チャンネル = 話者B（人間）</p>
+    <audio id="audioPlayer" controls></audio>
+    <table class="info-table" id="infoTable"></table>
+
+    <div id="questionText" style="text-align:center; font-weight:bold; margin:16px 0; font-size:1.1em;"></div>
+
+    <div class="btn-group">
+      <button class="btn yes" data-value="1">はい (1)</button>
+      <button class="btn no" data-value="0">いいえ (0)</button>
+      <button class="btn maybe" data-value="?">判断困難 (?)</button>
+    </div>
+
+    <div class="nav">
+      <button class="nav-btn" id="prevBtn" onclick="navigate(-1)">&larr; 前へ</button>
+      <span id="indexDisplay" style="padding:8px;">1 / 50</span>
+      <button class="nav-btn" id="nextBtn" onclick="navigate(1)">次へ &rarr;</button>
+    </div>
+  </div>
+
+  <div class="export-section">
+    <button class="export-btn" onclick="exportResults()">結果をダウンロード (CSV)</button>
+  </div>
+</div>
+
+<script>
+const TASKS = {
+  pause: {
+    question: "この沈黙は、話者Aがまだ話し続ける意図のあるポーズですか？",
+    guideline: `<h4>Pause Handling</h4>
+<p><b>ポーズ = 1</b>: 話者Aがまだ話し続ける意図がある短い沈黙（息継ぎ、考え中の間、言い淀み）</p>
+<p><b>ポーズではない = 0</b>: 話者Aの話が終わった後の沈黙、ターン境界、話題転換</p>
+<p>注: 話者Bが黙っているかは判定に使わないでください</p>`,
+    infoFields: (item) => [
+      ["沈黙区間", `${item.gap_start_in_clip}s ~ ${item.gap_end_in_clip}s (${item.gap_duration}s)`],
+      ["沈黙前のA発話", item.a_before_text],
+      ["沈黙後のA発話", item.a_after_text],
+      ["Aターン全体", `${item.a_turn_duration}s`],
+    ]
+  },
+  smooth_tt: {
+    question: "話者Aから話者Bへのスムーズなターン交替ですか？",
+    guideline: `<h4>Smooth Turn-Taking</h4>
+<p><b>スムーズなTT = 1</b>: Aの発話が自然に終了し、Bがスムーズにターンを引き継いで自分の話を始める</p>
+<p><b>スムーズなTTではない = 0</b>: Bの発話が相槌のみ、AとBが同時に話している、Bの発話がAと無関係</p>`,
+    infoFields: (item) => [
+      ["A終了時刻", `${item.a_end_in_clip}s`],
+      ["B開始時刻", `${item.b_start_in_clip}s`],
+      ["ギャップ", `${item.gap}s`],
+      ["A発話 (${item.a_duration}s)", item.a_text],
+      ["B発話 (${item.b_duration}s)", item.b_text],
+    ]
+  },
+  bc: {
+    question: "話者Aの発話中、話者Bは相槌のみですか？",
+    guideline: `<h4>Backchannel</h4>
+<p><b>相槌のみ = 1</b>: Bは「うん」「はい」「ええ」など短い応答のみ、またはお黙り</p>
+<p><b>相槌のみではない = 0</b>: Bが長い発話で割り込み、質問、自分の意見を述べ始めている</p>`,
+    infoFields: (item) => [
+      ["A発話区間", `${item.a_start_in_clip}s ~ ${item.a_end_in_clip}s (${item.a_duration}s)`],
+      ["A発話", item.a_text],
+      ["B発話", item.b_utterances || "(なし)"],
+      ["B相槌回数", item.human_bc_count],
+    ]
+  }
+};
+
+let currentTask = "pause";
+let currentIndex = 0;
+let data = {};
+let annotations = { pause: {}, smooth_tt: {}, bc: {} };
+
+// Load saved annotations from localStorage
+function loadSaved() {
+  const saved = localStorage.getItem("fdb_ja_annotations");
+  if (saved) {
+    annotations = JSON.parse(saved);
+  }
+  const savedId = localStorage.getItem("fdb_ja_annotator_id");
+  if (savedId) {
+    document.getElementById("annotatorId").value = savedId;
+  }
+}
+
+function saveAnnotations() {
+  localStorage.setItem("fdb_ja_annotations", JSON.stringify(annotations));
+  localStorage.setItem("fdb_ja_annotator_id", document.getElementById("annotatorId").value);
+}
+
+async function loadData() {
+  for (const task of ["pause", "smooth_tt", "bc"]) {
+    const resp = await fetch(`data_${task}.json`);
+    data[task] = await resp.json();
+  }
+}
+
+function render() {
+  const items = data[currentTask];
+  const item = items[currentIndex];
+  const taskConfig = TASKS[currentTask];
+
+  // Title
+  document.getElementById("itemTitle").textContent =
+    `#${currentIndex + 1}: ${item.clip_file || item.source_file}`;
+
+  // Audio
+  const audioDir = `audio/${currentTask}`;
+  document.getElementById("audioPlayer").src = `${audioDir}/${item.clip_file}`;
+
+  // Info table
+  const fields = taskConfig.infoFields(item);
+  let tableHTML = "";
+  for (const [label, value] of fields) {
+    tableHTML += `<tr><td>${label}</td><td>${value}</td></tr>`;
+  }
+  document.getElementById("infoTable").innerHTML = tableHTML;
+
+  // Question
+  document.getElementById("questionText").textContent = taskConfig.question;
+
+  // Guideline
+  document.getElementById("guidelineContent").innerHTML = taskConfig.guideline;
+
+  // Buttons
+  const current = annotations[currentTask][currentIndex];
+  document.querySelectorAll(".btn-group .btn").forEach(btn => {
+    btn.classList.toggle("selected", btn.dataset.value === current);
+  });
+
+  // Navigation
+  document.getElementById("indexDisplay").textContent =
+    `${currentIndex + 1} / ${items.length}`;
+  document.getElementById("prevBtn").disabled = currentIndex === 0;
+  document.getElementById("nextBtn").disabled = currentIndex === items.length - 1;
+
+  // Progress
+  const done = Object.keys(annotations[currentTask]).length;
+  const total = items.length;
+  document.getElementById("progressText").textContent = `${done} / ${total} 完了`;
+  document.getElementById("progressFill").style.width = `${(done / total) * 100}%`;
+
+  // Tabs
+  document.querySelectorAll(".task-tab").forEach(tab => {
+    const task = tab.dataset.task;
+    const taskDone = Object.keys(annotations[task]).length;
+    tab.classList.toggle("active", task === currentTask);
+    tab.textContent = `${task === "pause" ? "Pause" : task === "smooth_tt" ? "Smooth TT" : "BC"} (${taskDone}/50)`;
+  });
+}
+
+function navigate(delta) {
+  const items = data[currentTask];
+  currentIndex = Math.max(0, Math.min(items.length - 1, currentIndex + delta));
+  render();
+}
+
+function exportResults() {
+  const annotatorId = document.getElementById("annotatorId").value || "anonymous";
+  let csv = "annotator_id,task,clip_id,clip_file,auto_label,annotation\n";
+
+  for (const task of ["pause", "smooth_tt", "bc"]) {
+    const items = data[task];
+    for (let i = 0; i < items.length; i++) {
+      const ann = annotations[task][i] || "";
+      csv += `${annotatorId},${task},${items[i].clip_id},${items[i].clip_file},${items[i].auto_label},${ann}\n`;
+    }
+  }
+
+  const blob = new Blob([csv], { type: "text/csv" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = `fdb_ja_annotation_${annotatorId}_${new Date().toISOString().slice(0,10)}.csv`;
+  a.click();
+}
+
+// Event listeners
+document.querySelectorAll(".task-tab").forEach(tab => {
+  tab.addEventListener("click", () => {
+    currentTask = tab.dataset.task;
+    currentIndex = 0;
+    render();
+  });
+});
+
+document.querySelectorAll(".btn-group .btn").forEach(btn => {
+  btn.addEventListener("click", () => {
+    annotations[currentTask][currentIndex] = btn.dataset.value;
+    saveAnnotations();
+    render();
+    // Auto-advance after 300ms
+    setTimeout(() => navigate(1), 300);
+  });
+});
+
+// Keyboard shortcuts
+document.addEventListener("keydown", (e) => {
+  if (e.target.tagName === "INPUT") return;
+  if (e.key === "1") { annotations[currentTask][currentIndex] = "1"; saveAnnotations(); render(); setTimeout(() => navigate(1), 300); }
+  if (e.key === "0") { annotations[currentTask][currentIndex] = "0"; saveAnnotations(); render(); setTimeout(() => navigate(1), 300); }
+  if (e.key === "?") { annotations[currentTask][currentIndex] = "?"; saveAnnotations(); render(); setTimeout(() => navigate(1), 300); }
+  if (e.key === "ArrowLeft") navigate(-1);
+  if (e.key === "ArrowRight") navigate(1);
+  if (e.key === " ") { e.preventDefault(); document.getElementById("audioPlayer").paused ? document.getElementById("audioPlayer").play() : document.getElementById("audioPlayer").pause(); }
+});
+
+// Init
+loadSaved();
+loadData().then(() => render());
+</script>
+</body>
+</html>
