@@ -11,6 +11,11 @@
   h1 { text-align: center; margin-bottom: 10px; font-size: 1.5em; }
   .subtitle { text-align: center; color: #666; margin-bottom: 20px; }
 
+  /* Assignment info */
+  .assignment { text-align: center; background: #e3f2fd; padding: 10px; border-radius: 8px;
+    margin-bottom: 16px; font-size: 0.95em; }
+  .assignment strong { color: #1976d2; }
+
   /* Task selector */
   .task-tabs { display: flex; gap: 8px; margin-bottom: 20px; justify-content: center; }
   .task-tab { padding: 10px 20px; border: 2px solid #ddd; border-radius: 8px;
@@ -41,7 +46,6 @@
   .info-table { width: 100%; border-collapse: collapse; margin: 10px 0; font-size: 0.9em; }
   .info-table td { padding: 4px 8px; border-bottom: 1px solid #eee; }
   .info-table td:first-child { font-weight: bold; color: #666; width: 140px; }
-  .info-table .highlight { background: #e8f5e9; }
 
   /* Buttons */
   .btn-group { display: flex; gap: 10px; margin: 16px 0; justify-content: center; }
@@ -68,10 +72,15 @@
     border-radius: 8px; cursor: pointer; font-size: 1em; }
   .export-btn:hover { background: #1565c0; }
 
-  /* Annotator ID */
-  .annotator-input { text-align: center; margin-bottom: 20px; }
-  .annotator-input input { padding: 8px 16px; border: 2px solid #ddd; border-radius: 6px;
-    font-size: 1em; width: 250px; text-align: center; }
+  /* Completion */
+  .complete-msg { display: none; text-align: center; background: #e8f5e9; padding: 20px;
+    border-radius: 12px; margin: 20px 0; }
+  .complete-msg.show { display: block; }
+  .complete-msg h2 { color: #2e7d32; margin-bottom: 10px; }
+
+  /* Shortcuts help */
+  .shortcuts { text-align: center; font-size: 0.8em; color: #999; margin-top: 10px; }
+  kbd { background: #eee; border: 1px solid #ccc; border-radius: 3px; padding: 1px 5px; font-size: 0.9em; }
 </style>
 </head>
 <body>
@@ -79,19 +88,16 @@
   <h1>FDB-JA v4 Annotation Tool</h1>
   <p class="subtitle">Human-B-as-Annotator 妥当性検証</p>
 
-  <div class="annotator-input">
-    <label>アノテーターID: </label>
-    <input type="text" id="annotatorId" placeholder="名前やIDを入力">
-  </div>
+  <div class="assignment" id="assignmentInfo"></div>
 
   <div class="task-tabs">
-    <div class="task-tab active" data-task="pause">Pause (50)</div>
-    <div class="task-tab" data-task="smooth_tt">Smooth TT (50)</div>
-    <div class="task-tab" data-task="bc">BC (50)</div>
+    <div class="task-tab active" data-task="pause">Pause</div>
+    <div class="task-tab" data-task="smooth_tt">Smooth TT</div>
+    <div class="task-tab" data-task="bc">BC</div>
   </div>
 
   <div class="progress">
-    <span id="progressText">0 / 50 完了</span>
+    <span id="progressText">0 / 0 完了</span>
     <div class="progress-bar"><div class="progress-fill" id="progressFill" style="width:0%"></div></div>
   </div>
 
@@ -116,9 +122,19 @@
 
     <div class="nav">
       <button class="nav-btn" id="prevBtn" onclick="navigate(-1)">&larr; 前へ</button>
-      <span id="indexDisplay" style="padding:8px;">1 / 50</span>
+      <span id="indexDisplay" style="padding:8px;">1 / ?</span>
       <button class="nav-btn" id="nextBtn" onclick="navigate(1)">次へ &rarr;</button>
     </div>
+
+    <div class="shortcuts">
+      <kbd>1</kbd> はい &nbsp; <kbd>0</kbd> いいえ &nbsp; <kbd>?</kbd> 判断困難 &nbsp;
+      <kbd>←</kbd><kbd>→</kbd> 移動 &nbsp; <kbd>Space</kbd> 再生/停止
+    </div>
+  </div>
+
+  <div class="complete-msg" id="completeMsg">
+    <h2>全タスク完了!</h2>
+    <p>お疲れ様でした。下のボタンから結果をダウンロードしてください。</p>
   </div>
 
   <div class="export-section">
@@ -127,6 +143,17 @@
 </div>
 
 <script>
+// ============================================================
+// URL params: ?workers=5&id=2 (1-indexed)
+// Each worker gets a subset of 50 items per task
+// e.g. workers=5 → each gets 10 items per task
+// Without params → all 50 items (for single annotator)
+// ============================================================
+const params = new URLSearchParams(window.location.search);
+const totalWorkers = parseInt(params.get("workers")) || 1;
+const workerId = parseInt(params.get("id")) || 1;
+const workerIdStr = `worker_${workerId}`;
+
 const TASKS = {
   pause: {
     question: "この沈黙は、話者Aがまだ話し続ける意図のあるポーズですか？",
@@ -150,8 +177,8 @@ const TASKS = {
       ["A終了時刻", `${item.a_end_in_clip}s`],
       ["B開始時刻", `${item.b_start_in_clip}s`],
       ["ギャップ", `${item.gap}s`],
-      ["A発話 (${item.a_duration}s)", item.a_text],
-      ["B発話 (${item.b_duration}s)", item.b_text],
+      [`A発話 (${item.a_duration}s)`, item.a_text],
+      [`B発話 (${item.b_duration}s)`, item.b_text],
     ]
   },
   bc: {
@@ -170,35 +197,50 @@ const TASKS = {
 
 let currentTask = "pause";
 let currentIndex = 0;
-let data = {};
+let data = {};           // full data
+let assignedData = {};   // worker's subset
 let annotations = { pause: {}, smooth_tt: {}, bc: {} };
 
-// Load saved annotations from localStorage
+function getStorageKey() {
+  return `fdb_ja_ann_w${totalWorkers}_id${workerId}`;
+}
+
 function loadSaved() {
-  const saved = localStorage.getItem("fdb_ja_annotations");
-  if (saved) {
-    annotations = JSON.parse(saved);
-  }
-  const savedId = localStorage.getItem("fdb_ja_annotator_id");
-  if (savedId) {
-    document.getElementById("annotatorId").value = savedId;
-  }
+  const saved = localStorage.getItem(getStorageKey());
+  if (saved) annotations = JSON.parse(saved);
 }
 
 function saveAnnotations() {
-  localStorage.setItem("fdb_ja_annotations", JSON.stringify(annotations));
-  localStorage.setItem("fdb_ja_annotator_id", document.getElementById("annotatorId").value);
+  localStorage.setItem(getStorageKey(), JSON.stringify(annotations));
+}
+
+function assignItems(allItems, nWorkers, wId) {
+  // Split items evenly across workers (1-indexed wId)
+  const perWorker = Math.ceil(allItems.length / nWorkers);
+  const start = (wId - 1) * perWorker;
+  const end = Math.min(start + perWorker, allItems.length);
+  return allItems.slice(start, end);
 }
 
 async function loadData() {
   for (const task of ["pause", "smooth_tt", "bc"]) {
     const resp = await fetch(`data_${task}.json`);
     data[task] = await resp.json();
+    assignedData[task] = assignItems(data[task], totalWorkers, workerId);
   }
+
+  // Show assignment info
+  const perTask = assignedData["pause"].length;
+  const total = perTask * 3;
+  document.getElementById("assignmentInfo").innerHTML =
+    `<strong>ワーカー ${workerId} / ${totalWorkers}</strong> &mdash; ` +
+    `各タスク <strong>${perTask}件</strong>、合計 <strong>${total}件</strong> を担当`;
 }
 
 function render() {
-  const items = data[currentTask];
+  const items = assignedData[currentTask];
+  if (!items || items.length === 0) return;
+
   const item = items[currentIndex];
   const taskConfig = TASKS[currentTask];
 
@@ -207,8 +249,7 @@ function render() {
     `#${currentIndex + 1}: ${item.clip_file || item.source_file}`;
 
   // Audio
-  const audioDir = `audio/${currentTask}`;
-  document.getElementById("audioPlayer").src = `${audioDir}/${item.clip_file}`;
+  document.getElementById("audioPlayer").src = `audio/${currentTask}/${item.clip_file}`;
 
   // Info table
   const fields = taskConfig.infoFields(item);
@@ -245,27 +286,39 @@ function render() {
   // Tabs
   document.querySelectorAll(".task-tab").forEach(tab => {
     const task = tab.dataset.task;
+    const taskItems = assignedData[task];
     const taskDone = Object.keys(annotations[task]).length;
+    const taskTotal = taskItems ? taskItems.length : 0;
     tab.classList.toggle("active", task === currentTask);
-    tab.textContent = `${task === "pause" ? "Pause" : task === "smooth_tt" ? "Smooth TT" : "BC"} (${taskDone}/50)`;
+    const label = task === "pause" ? "Pause" : task === "smooth_tt" ? "Smooth TT" : "BC";
+    tab.textContent = `${label} (${taskDone}/${taskTotal})`;
   });
+
+  // Check all complete
+  let allDone = true;
+  for (const task of ["pause", "smooth_tt", "bc"]) {
+    if (Object.keys(annotations[task]).length < assignedData[task].length) {
+      allDone = false;
+      break;
+    }
+  }
+  document.getElementById("completeMsg").classList.toggle("show", allDone);
 }
 
 function navigate(delta) {
-  const items = data[currentTask];
+  const items = assignedData[currentTask];
   currentIndex = Math.max(0, Math.min(items.length - 1, currentIndex + delta));
   render();
 }
 
 function exportResults() {
-  const annotatorId = document.getElementById("annotatorId").value || "anonymous";
-  let csv = "annotator_id,task,clip_id,clip_file,auto_label,annotation\n";
+  let csv = "annotator_id,worker_id,total_workers,task,clip_id,clip_file,auto_label,annotation\n";
 
   for (const task of ["pause", "smooth_tt", "bc"]) {
-    const items = data[task];
+    const items = assignedData[task];
     for (let i = 0; i < items.length; i++) {
       const ann = annotations[task][i] || "";
-      csv += `${annotatorId},${task},${items[i].clip_id},${items[i].clip_file},${items[i].auto_label},${ann}\n`;
+      csv += `${workerIdStr},${workerId},${totalWorkers},${task},${items[i].clip_id},${items[i].clip_file},${items[i].auto_label},${ann}\n`;
     }
   }
 
@@ -273,7 +326,7 @@ function exportResults() {
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
   a.href = url;
-  a.download = `fdb_ja_annotation_${annotatorId}_${new Date().toISOString().slice(0,10)}.csv`;
+  a.download = `fdb_ja_annotation_worker${workerId}_of_${totalWorkers}.csv`;
   a.click();
 }
 
@@ -291,12 +344,10 @@ document.querySelectorAll(".btn-group .btn").forEach(btn => {
     annotations[currentTask][currentIndex] = btn.dataset.value;
     saveAnnotations();
     render();
-    // Auto-advance after 300ms
     setTimeout(() => navigate(1), 300);
   });
 });
 
-// Keyboard shortcuts
 document.addEventListener("keydown", (e) => {
   if (e.target.tagName === "INPUT") return;
   if (e.key === "1") { annotations[currentTask][currentIndex] = "1"; saveAnnotations(); render(); setTimeout(() => navigate(1), 300); }
@@ -304,7 +355,7 @@ document.addEventListener("keydown", (e) => {
   if (e.key === "?") { annotations[currentTask][currentIndex] = "?"; saveAnnotations(); render(); setTimeout(() => navigate(1), 300); }
   if (e.key === "ArrowLeft") navigate(-1);
   if (e.key === "ArrowRight") navigate(1);
-  if (e.key === " ") { e.preventDefault(); document.getElementById("audioPlayer").paused ? document.getElementById("audioPlayer").play() : document.getElementById("audioPlayer").pause(); }
+  if (e.key === " ") { e.preventDefault(); const ap = document.getElementById("audioPlayer"); ap.paused ? ap.play() : ap.pause(); }
 });
 
 // Init
